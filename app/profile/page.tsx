@@ -7,6 +7,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 
+// Mock user data for display purposes
+const currentUser = {
+  username: "johndoe",
+  full_name: "John Doe",
+  bio: "Passionate home cook with a love for Mediterranean and Asian cuisines. Sharing my favorite recipes and culinary experiments.",
+  avatar_url: "/placeholder-avatar.jpg",
+};
+
 export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<
     "my-recipes" | "saved" | "settings"
@@ -18,15 +26,34 @@ export default function ProfilePage() {
         {/* Profile Header */}
         <div className="flex flex-col md:flex-row items-center gap-8 mb-10">
           <Avatar className="w-32 h-32">
-            <AvatarImage src="/placeholder-avatar.jpg" alt="User" />
-            <AvatarFallback>JD</AvatarFallback>
+            <AvatarImage
+              src={currentUser.avatar_url}
+              alt={currentUser.username}
+            />
+            <AvatarFallback>
+              {currentUser.full_name
+                ? `${currentUser.full_name.split(" ")[0][0]}${
+                    currentUser.full_name.split(" ")[1]?.[0] || ""
+                  }`
+                : currentUser.username.substring(0, 2).toUpperCase()}
+            </AvatarFallback>
           </Avatar>
           <div className="flex-1 text-center md:text-left">
-            <h1 className="text-3xl font-bold mb-2">John Doe</h1>
-            <p className="text-gray-500 max-w-md mb-4">
-              Passionate home cook with a love for Mediterranean and Asian
-              cuisines. Sharing my favorite recipes and culinary experiments.
-            </p>
+            {currentUser.full_name && (
+              <h1 className="text-3xl font-bold mb-1">
+                {currentUser.full_name}
+              </h1>
+            )}
+            <div
+              className={`${
+                currentUser.full_name
+                  ? "text-lg text-gray-600 mb-3"
+                  : "text-3xl font-bold mb-2"
+              }`}
+            >
+              @{currentUser.username}
+            </div>
+            <p className="text-gray-500 max-w-md mb-4">{currentUser.bio}</p>
             <div className="flex flex-wrap gap-2 justify-center md:justify-start">
               <div className="bg-slate-100 px-3 py-1 rounded-full text-sm">
                 <span className="font-medium">12</span> Recipes
@@ -234,8 +261,17 @@ export default function ProfilePage() {
                 <label className="text-sm font-medium">Profile Photo</label>
                 <div className="flex items-center gap-4">
                   <Avatar className="w-16 h-16">
-                    <AvatarImage src="/placeholder-avatar.jpg" alt="User" />
-                    <AvatarFallback>JD</AvatarFallback>
+                    <AvatarImage
+                      src={currentUser.avatar_url}
+                      alt={currentUser.username}
+                    />
+                    <AvatarFallback>
+                      {currentUser.full_name
+                        ? `${currentUser.full_name.split(" ")[0][0]}${
+                            currentUser.full_name.split(" ")[1]?.[0] || ""
+                          }`
+                        : currentUser.username.substring(0, 2).toUpperCase()}
+                    </AvatarFallback>
                   </Avatar>
                   <Button variant="outline" size="sm">
                     Change Photo
@@ -244,12 +280,29 @@ export default function ProfilePage() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Name</label>
+                <label className="text-sm font-medium">Username</label>
                 <input
                   type="text"
                   className="w-full p-2 border rounded-md"
-                  defaultValue="John Doe"
+                  defaultValue={currentUser.username}
                 />
+                <p className="text-xs text-gray-500">
+                  This unique identifier is used in URLs and cannot contain
+                  spaces
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Full Name</label>
+                <input
+                  type="text"
+                  className="w-full p-2 border rounded-md"
+                  defaultValue={currentUser.full_name}
+                  placeholder="Your full name (optional)"
+                />
+                <p className="text-xs text-gray-500">
+                  Your display name shown on your profile and recipes
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -265,7 +318,7 @@ export default function ProfilePage() {
                 <label className="text-sm font-medium">Bio</label>
                 <textarea
                   className="w-full p-2 border rounded-md min-h-24"
-                  defaultValue="Passionate home cook with a love for Mediterranean and Asian cuisines. Sharing my favorite recipes and culinary experiments."
+                  defaultValue={currentUser.bio}
                 ></textarea>
               </div>
 

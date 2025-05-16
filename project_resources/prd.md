@@ -8,7 +8,7 @@ User Authentication
 
     Sign up, login, and logout using Supabase Auth
 
-    User profile management (avatar, bio, etc.)
+    User profile management (username, full name, avatar, bio, etc.)
 
 Recipe Management
 
@@ -90,6 +90,10 @@ Step 3: User Authentication
 
     Create signup, login, and profile pages
 
+    Require username during signup process
+
+    Allow setting optional full name for display purposes
+
 Step 4: Recipe CRUD Functionality
 
     Create forms/pages to add, edit, and delete recipes
@@ -114,7 +118,7 @@ Step 6: Community Features
 
 Step 7: User Profiles
 
-    Display user’s uploaded and favorite recipes
+    Display user's uploaded and favorite recipes
 
     Allow avatar upload (optional)
 
@@ -138,7 +142,7 @@ Step 10: Deployment
 
 Database Schema Overview
 Table Fields
-users id, email, name, avatar_url, bio
+users id, email, username (required), full_name, avatar_url, bio
 recipes id, user_id, title, description, ingredients, instructions, image_url, category_id, created_at
 categories id, name
 comments id, user_id, recipe_id, content, created_at

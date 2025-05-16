@@ -1,103 +1,179 @@
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="flex flex-col gap-12 pb-8">
+      {/* Hero Section */}
+      <section className="w-full py-12 md:py-24 lg:py-32 bg-slate-50">
+        <div className="container px-4 md:px-6">
+          <div className="grid gap-6 lg:grid-cols-2 lg:gap-12 items-center">
+            <div className="flex flex-col justify-center space-y-4">
+              <div className="space-y-2">
+                <h1 className="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl">
+                  Share Your Culinary Masterpieces
+                </h1>
+                <p className="max-w-[600px] text-gray-500 md:text-xl">
+                  Join our community of food enthusiasts. Discover new recipes
+                  or share your own creations with the world.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 min-[400px]:flex-row">
+                <Button asChild size="lg">
+                  <Link href="/recipes/create">Share a Recipe</Link>
+                </Button>
+                <Button variant="outline" size="lg" asChild>
+                  <Link href="/recipes">Browse Recipes</Link>
+                </Button>
+              </div>
+            </div>
+            <div className="mx-auto w-full max-w-[500px] relative aspect-video lg:aspect-square overflow-hidden rounded-xl">
+              <Image
+                src="/hero-image.jpg"
+                alt="Delicious food spread on a table"
+                fill
+                className="object-cover"
+                priority
+              />
+            </div>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </section>
+
+      {/* Featured Recipes */}
+      <section className="container px-4 md:px-6">
+        <div className="flex flex-col gap-4">
+          <h2 className="text-3xl font-bold tracking-tight">
+            Featured Recipes
+          </h2>
+          <p className="text-gray-500">Our most popular recipes this week</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {featuredRecipes.map((recipe) => (
+              <div key={recipe.id}>
+                <Link href={`/recipes/${recipe.id}`} className="block h-full">
+                  <Card className="overflow-hidden h-full">
+                    <div className="relative aspect-video overflow-hidden">
+                      <Image
+                        src={recipe.image}
+                        alt={recipe.title}
+                        fill
+                        className="object-cover transition-transform hover:scale-105 duration-300"
+                      />
+                    </div>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm font-medium px-2.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                          {recipe.category}
+                        </span>
+                        <span className="text-sm text-gray-500">
+                          {recipe.time} mins
+                        </span>
+                      </div>
+                      <CardTitle className="line-clamp-2">
+                        {recipe.title}
+                      </CardTitle>
+                    </CardContent>
+                    <CardFooter className="text-sm text-gray-500 flex justify-between">
+                      <span>By {recipe.author}</span>
+                      <div className="flex items-center gap-1">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="text-yellow-400"
+                        >
+                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                        </svg>
+                        <span>{recipe.rating}</span>
+                      </div>
+                    </CardFooter>
+                  </Card>
+                </Link>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-center mt-6">
+            <Button variant="outline" asChild>
+              <Link href="/recipes">View All Recipes</Link>
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* Categories */}
+      <section className="container px-4 md:px-6">
+        <div className="flex flex-col gap-4">
+          <h2 className="text-3xl font-bold tracking-tight">
+            Browse by Category
+          </h2>
+          <p className="text-gray-500">
+            Find recipes by your favorite cuisine or dish type
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {categories.map((category) => (
+              <Link
+                key={category.name}
+                href={`/categories/${category.slug}`}
+                className="flex flex-col items-center gap-2 p-4 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors"
+              >
+                <div className="w-16 h-16 flex items-center justify-center rounded-full bg-slate-200">
+                  <span className="text-2xl">{category.emoji}</span>
+                </div>
+                <span className="text-sm font-medium text-center">
+                  {category.name}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
+
+const featuredRecipes = [
+  {
+    id: "1",
+    title: "Homemade Margherita Pizza",
+    author: "Chef Maria",
+    category: "Italian",
+    time: 45,
+    rating: 4.8,
+    image: "/recipes/pizza.jpg",
+  },
+  {
+    id: "2",
+    title: "Classic Beef Burger with Caramelized Onions",
+    author: "Chef John",
+    category: "American",
+    time: 30,
+    rating: 4.6,
+    image: "/recipes/burger.jpg",
+  },
+  {
+    id: "3",
+    title: "Chocolate Lava Cake",
+    author: "Chef Lily",
+    category: "Dessert",
+    time: 25,
+    rating: 4.9,
+    image: "/recipes/chocolate-cake.jpg",
+  },
+];
+
+const categories = [
+  { name: "Breakfast", emoji: "🍳", slug: "breakfast" },
+  { name: "Lunch", emoji: "🥪", slug: "lunch" },
+  { name: "Dinner", emoji: "🍝", slug: "dinner" },
+  { name: "Desserts", emoji: "🍰", slug: "desserts" },
+  { name: "Vegan", emoji: "🥗", slug: "vegan" },
+  { name: "Quick Meals", emoji: "⏱️", slug: "quick-meals" },
+];

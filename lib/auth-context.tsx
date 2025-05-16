@@ -44,9 +44,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Set up a listener for changes to auth state
         const {
           data: { subscription },
-        } = await supabase.auth.onAuthStateChange((event, session) => {
-          setSession(session);
-          setUser(session?.user || null);
+        } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+          console.log("Auth state changed:", event, newSession?.user?.email);
+          setSession(newSession);
+          setUser(newSession?.user || null);
+          router.refresh(); // Refresh the page to update server-side components
           setIsLoading(false);
         });
 
@@ -61,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     initializeAuth();
-  }, []);
+  }, [router]);
 
   // Sign up function
   const signUp = async (
@@ -75,11 +77,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          data: {
+            username,
+            full_name: fullName || null,
+          },
+        },
       });
 
       if (error) {
         toast.error(error.message);
-        return;
+        throw error;
       }
 
       // Create a user record in the users table
@@ -93,15 +102,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (profileError) {
           toast.error("Error creating user profile");
-          return;
+          throw profileError;
         }
 
         toast.success("Account created successfully!");
         router.push("/login");
       }
     } catch (error) {
-      toast.error("An unexpected error occurred");
-      console.error(error);
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("An unexpected error occurred");
+        console.error(error);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -118,14 +131,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) {
         toast.error(error.message);
-        return;
+        throw error;
       }
 
       toast.success("Signed in successfully!");
       router.push("/");
+      router.refresh(); // Ensure server components refresh with new session
     } catch (error) {
-      toast.error("An unexpected error occurred");
-      console.error(error);
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("An unexpected error occurred");
+        console.error(error);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -139,14 +157,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) {
         toast.error(error.message);
-        return;
+        throw error;
       }
 
       toast.success("Signed out successfully");
       router.push("/");
+      router.refresh(); // Ensure server components refresh
     } catch (error) {
-      toast.error("An unexpected error occurred");
-      console.error(error);
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("An unexpected error occurred");
+        console.error(error);
+      }
     } finally {
       setIsLoading(false);
     }

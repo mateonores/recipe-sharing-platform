@@ -11,7 +11,11 @@ const protectedRoutes = [
 ];
 
 export async function middleware(request: NextRequest) {
-  const res = NextResponse.next();
+  const response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
 
   // Create a Supabase client for use in middleware
   const supabase = createServerClient(
@@ -26,20 +30,22 @@ export async function middleware(request: NextRequest) {
           }));
         },
         setAll: (cookies) => {
-          for (const cookie of cookies) {
-            res.cookies.set({
+          cookies.forEach((cookie) => {
+            response.cookies.set({
               name: cookie.name,
               value: cookie.value,
               ...cookie.options,
             });
-          }
+          });
         },
       },
     }
   );
 
   // Refresh session if expired
-  await supabase.auth.getSession();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
   // Check if route requires authentication
   const { pathname } = request.nextUrl;
@@ -50,11 +56,6 @@ export async function middleware(request: NextRequest) {
   );
 
   if (isProtectedRoute) {
-    // Get the user's session
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
     // If user is not authenticated, redirect to login
     if (!session) {
       const redirectUrl = new URL("/login", request.url);
@@ -65,15 +66,12 @@ export async function middleware(request: NextRequest) {
 
   // If user is logged in and tries to access login/signup pages, redirect to home
   if (["/login", "/signup"].includes(pathname)) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
     if (session) {
       return NextResponse.redirect(new URL("/", request.url));
     }
   }
 
-  return res;
+  return response;
 }
 
 export const config = {

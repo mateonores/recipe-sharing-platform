@@ -11,11 +11,11 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth-context";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { toast } from "sonner";
 import { z } from "zod";
 
 const signUpFormSchema = z
@@ -34,7 +34,8 @@ const signUpFormSchema = z
 type SignUpFormValues = z.infer<typeof signUpFormSchema>;
 
 export default function SignUpPage() {
-  const [isLoading, setIsLoading] = useState(false);
+  const { signUp, isLoading } = useAuth();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const form = useForm<SignUpFormValues>({
     resolver: zodResolver(signUpFormSchema),
@@ -47,15 +48,22 @@ export default function SignUpPage() {
     },
   });
 
-  function onSubmit(values: SignUpFormValues) {
-    setIsLoading(true);
-
-    // In a real app, you would call your API to create the user
-    setTimeout(() => {
-      console.log(values);
-      toast.success("Account created! Please log in.");
-      setIsLoading(false);
-    }, 1000);
+  async function onSubmit(values: SignUpFormValues) {
+    setErrorMessage(null);
+    try {
+      await signUp(
+        values.email,
+        values.password,
+        values.username,
+        values.full_name || undefined
+      );
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage("An unexpected error occurred");
+      }
+    }
   }
 
   return (
@@ -67,6 +75,12 @@ export default function SignUpPage() {
             Join our community to share and discover delicious recipes
           </p>
         </div>
+
+        {errorMessage && (
+          <div className="p-3 rounded-md bg-red-50 text-red-600 text-sm">
+            {errorMessage}
+          </div>
+        )}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

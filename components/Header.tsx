@@ -1,6 +1,14 @@
 "use client";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   NavigationMenu,
   NavigationMenuContent,
@@ -10,12 +18,70 @@ import {
   NavigationMenuTrigger,
   navigationMenuTriggerStyle,
 } from "@/components/ui/navigation-menu";
+import { useAuth } from "@/lib/auth-context";
+import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { Database } from "@/types/supabase";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+
+type Profile = Database["public"]["Tables"]["users"]["Row"];
 
 export function Header() {
   const pathname = usePathname();
+  const { user, signOut } = useAuth();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    async function loadProfile() {
+      if (!user) {
+        setProfile(null);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from("users")
+          .select("*")
+          .eq("id", user.id)
+          .single();
+
+        if (error) {
+          console.error("Error loading user profile:", error);
+          return;
+        }
+
+        setProfile(data);
+      } catch (error) {
+        console.error("Error loading user profile:", error);
+      }
+    }
+
+    loadProfile();
+  }, [user]);
+
+  const handleLogout = async () => {
+    setIsLoading(true);
+    await signOut();
+    setIsLoading(false);
+  };
+
+  const getInitials = () => {
+    if (profile?.full_name) {
+      const nameParts = profile.full_name.split(" ");
+      return `${nameParts[0]?.[0] || ""}${
+        nameParts[1]?.[0] || ""
+      }`.toUpperCase();
+    }
+
+    if (profile?.username) {
+      return profile.username.slice(0, 2).toUpperCase();
+    }
+
+    return "U";
+  };
 
   return (
     <header className="w-full border-b">
@@ -71,15 +137,68 @@ export function Header() {
                 </ul>
               </NavigationMenuContent>
             </NavigationMenuItem>
+            {user && (
+              <NavigationMenuItem>
+                <NavigationMenuLink
+                  asChild
+                  className={cn(
+                    navigationMenuTriggerStyle(),
+                    pathname === "/recipes/create" && "font-bold"
+                  )}
+                >
+                  <Link href="/recipes/create">Create Recipe</Link>
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+            )}
           </NavigationMenuList>
         </NavigationMenu>
         <div className="flex items-center gap-4">
-          <Button variant="outline" asChild>
-            <Link href="/login">Log In</Link>
-          </Button>
-          <Button asChild>
-            <Link href="/signup">Sign Up</Link>
-          </Button>
+          {user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-2 outline-none">
+                  <span className="hidden md:inline-block text-sm">
+                    {profile?.full_name || profile?.username || user.email}
+                  </span>
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage
+                      src={profile?.avatar_url || undefined}
+                      alt={profile?.username || "User"}
+                    />
+                    <AvatarFallback>{getInitials()}</AvatarFallback>
+                  </Avatar>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link href="/profile">Profile</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/profile/recipes">My Recipes</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/profile/favorites">Saved Recipes</Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={handleLogout}
+                  disabled={isLoading}
+                  className="cursor-pointer"
+                >
+                  {isLoading ? "Signing out..." : "Sign Out"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <>
+              <Button variant="outline" asChild>
+                <Link href="/login">Log In</Link>
+              </Button>
+              <Button asChild>
+                <Link href="/signup">Sign Up</Link>
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </header>

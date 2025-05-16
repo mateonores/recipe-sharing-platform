@@ -10,38 +10,43 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth-context";
+import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { toast } from "sonner";
+import { z } from "zod";
 
-interface LoginFormValues {
-  email: string;
-  password: string;
-}
+const loginFormSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+
+type LoginFormValues = z.infer<typeof loginFormSchema>;
 
 export default function LoginPage() {
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
+  const { signIn, isLoading } = useAuth();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const form = useForm<LoginFormValues>({
+    resolver: zodResolver(loginFormSchema),
     defaultValues: {
       email: "",
       password: "",
     },
   });
 
-  function onSubmit(values: LoginFormValues) {
-    setIsLoading(true);
-
-    // In a real app, you would call your API to log the user in
-    setTimeout(() => {
-      console.log(values);
-      toast.success("Logged in successfully!");
-      router.push("/");
-      setIsLoading(false);
-    }, 1000);
+  async function onSubmit(values: LoginFormValues) {
+    setErrorMessage(null);
+    try {
+      await signIn(values.email, values.password);
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage("An unexpected error occurred");
+      }
+    }
   }
 
   return (
@@ -51,6 +56,12 @@ export default function LoginPage() {
           <h1 className="text-3xl font-bold">Log In</h1>
           <p className="text-gray-500">Welcome back to RecipeShare</p>
         </div>
+
+        {errorMessage && (
+          <div className="p-3 rounded-md bg-red-50 text-red-600 text-sm">
+            {errorMessage}
+          </div>
+        )}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

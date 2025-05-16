@@ -17,3 +17,7 @@ CREATE POLICY "Public profiles are viewable by everyone" ON users
 
 CREATE POLICY "Users can update their own profiles" ON users
   FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "Users can insert their own profile" ON users
+  FOR INSERT WITH CHECK (auth.uid() = id);
+

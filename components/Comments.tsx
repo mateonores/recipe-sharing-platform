@@ -87,7 +87,7 @@ export function Comments({
     };
 
     fetchData();
-  }, [recipeId, user?.id, onCommentsCountChange]);
+  }, [recipeId, user, onCommentsCountChange]);
 
   // Add new comment
   const handleSubmitComment = async () => {
@@ -590,10 +590,10 @@ export function Comments({
         onValueChange={(value) => setActiveTab(value as "all" | "reviews")}
       >
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="all">
+          <TabsTrigger value="all" className="cursor-pointer">
             All Comments ({allComments.length})
           </TabsTrigger>
-          <TabsTrigger value="reviews">
+          <TabsTrigger value="reviews" className="cursor-pointer">
             Reviews Only ({reviewComments.length})
           </TabsTrigger>
         </TabsList>

@@ -35,6 +35,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const initializeAuth = async () => {
       try {
+        // Skip auth initialization during build time
+        if (!supabase || typeof window === "undefined") {
+          setIsLoading(false);
+          return;
+        }
+
         // Get the current session
         const {
           data: { session },

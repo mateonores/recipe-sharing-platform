@@ -19,7 +19,7 @@ type Recipe = Database["public"]["Tables"]["recipes"]["Row"] & {
     avatar_url: string | null;
   };
   categories?: { name: string } | null;
-  ratings?: { rating: number }[];
+  comments?: { rating: number | null }[];
   _count?: {
     favorites: number;
     comments: number;
@@ -62,7 +62,7 @@ export default function RecipePage({ params }: RecipePageProps) {
             *,
             users(username, full_name, avatar_url),
             categories(name),
-            ratings(rating)
+            comments(rating)
           `
           )
           .eq("id", recipeId)
@@ -171,11 +171,23 @@ export default function RecipePage({ params }: RecipePageProps) {
     }
   };
 
-  // Calculate average rating
+  // Calculate average rating from comments
   const getAverageRating = () => {
-    if (!recipe?.ratings || recipe.ratings.length === 0) return 0;
-    const sum = recipe.ratings.reduce((acc, r) => acc + r.rating, 0);
-    return (sum / recipe.ratings.length).toFixed(1);
+    if (!recipe?.comments) return 0;
+    const ratingsOnly = recipe.comments
+      .map((c) => c.rating)
+      .filter((rating): rating is number => rating !== null);
+
+    if (ratingsOnly.length === 0) return 0;
+
+    const sum = ratingsOnly.reduce((acc, r) => acc + r, 0);
+    return (sum / ratingsOnly.length).toFixed(1);
+  };
+
+  // Get ratings count
+  const getRatingsCount = () => {
+    if (!recipe?.comments) return 0;
+    return recipe.comments.filter((c) => c.rating !== null).length;
   };
 
   // Handle recipe deletion
@@ -232,7 +244,7 @@ export default function RecipePage({ params }: RecipePageProps) {
         try {
           const { data, error } = await supabase
             .from("recipes")
-            .select("ratings(rating)")
+            .select("comments(rating)")
             .eq("id", recipeId)
             .single();
 
@@ -242,7 +254,7 @@ export default function RecipePage({ params }: RecipePageProps) {
             prev
               ? {
                   ...prev,
-                  ratings: data.ratings || [],
+                  comments: data.comments || [],
                 }
               : null
           );
@@ -372,7 +384,7 @@ export default function RecipePage({ params }: RecipePageProps) {
               </svg>
               <span className="font-medium">{getAverageRating()}</span>
               <span className="text-gray-500">
-                ({recipe.ratings?.length || 0} reviews)
+                ({getRatingsCount()} reviews)
               </span>
             </div>
             <div className="flex items-center space-x-2">

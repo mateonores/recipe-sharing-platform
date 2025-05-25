@@ -2,6 +2,7 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase";
@@ -37,22 +38,24 @@ export function Comments({
   const [hoveredRating, setHoveredRating] = useState<number>(0);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
+  const [editingRating, setEditingRating] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [userExistingRating, setUserExistingRating] = useState<number | null>(
+  const [userExistingReview, setUserExistingReview] = useState<Comment | null>(
     null
   );
+  const [activeTab, setActiveTab] = useState<"all" | "reviews">("all");
 
   const isRecipeOwner = user?.id === recipeOwnerId;
   const canRate = user && !isRecipeOwner;
 
-  // Fetch comments and user's existing rating
+  // Fetch comments and user's existing review
   useEffect(() => {
     const fetchData = async () => {
       try {
         setIsLoading(true);
 
-        // Fetch comments
+        // Fetch all comments
         const { data: commentsData, error: commentsError } = await supabase
           .from("comments")
           .select(
@@ -68,17 +71,12 @@ export function Comments({
         setComments(commentsData || []);
         onCommentsCountChange?.(commentsData?.length || 0);
 
-        // Fetch user's existing rating if they can rate
-        if (canRate) {
-          const { data: ratingData } = await supabase
-            .from("ratings")
-            .select("rating")
-            .eq("recipe_id", recipeId)
-            .eq("user_id", user.id)
-            .single();
-
-          setUserExistingRating(ratingData?.rating || null);
-          setNewRating(ratingData?.rating || 0);
+        // Find user's existing review (comment with rating)
+        if (user) {
+          const userReview = commentsData?.find(
+            (comment) => comment.user_id === user.id && comment.rating !== null
+          );
+          setUserExistingReview(userReview || null);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -89,10 +87,10 @@ export function Comments({
     };
 
     fetchData();
-  }, [recipeId, canRate, user?.id, onCommentsCountChange]);
+  }, [recipeId, user?.id, onCommentsCountChange]);
 
-  // Add new comment (and rating if applicable)
-  const handleAddComment = async () => {
+  // Add new comment
+  const handleSubmitComment = async () => {
     if (!user) {
       toast.error("Please log in to comment");
       return;
@@ -106,13 +104,24 @@ export function Comments({
     try {
       setIsSubmitting(true);
 
-      // Add comment
+      // If user is adding a rating and they already have a review, remove rating from existing review
+      if (canRate && newRating > 0 && userExistingReview) {
+        const { error: updateError } = await supabase
+          .from("comments")
+          .update({ rating: null })
+          .eq("id", userExistingReview.id);
+
+        if (updateError) throw updateError;
+      }
+
+      // Add new comment
       const { data: commentData, error: commentError } = await supabase
         .from("comments")
         .insert({
           recipe_id: recipeId,
           user_id: user.id,
           content: newComment.trim(),
+          rating: canRate && newRating > 0 ? newRating : null,
         })
         .select(
           `
@@ -124,49 +133,35 @@ export function Comments({
 
       if (commentError) throw commentError;
 
-      // Add or update rating if user can rate and provided a rating
+      // Update local state
+      setComments((prev) => [commentData, ...prev]);
+
+      // Update user's existing review if this comment has a rating
       if (canRate && newRating > 0) {
-        if (userExistingRating) {
-          // Update existing rating
-          const { error: ratingError } = await supabase
-            .from("ratings")
-            .update({ rating: newRating })
-            .eq("recipe_id", recipeId)
-            .eq("user_id", user.id);
-
-          if (ratingError) throw ratingError;
-        } else {
-          // Insert new rating
-          const { error: ratingError } = await supabase.from("ratings").insert({
-            recipe_id: recipeId,
-            user_id: user.id,
-            rating: newRating,
-          });
-
-          if (ratingError) throw ratingError;
+        // Remove rating from old review in local state
+        if (userExistingReview) {
+          setComments((prev) =>
+            prev.map((comment) =>
+              comment.id === userExistingReview.id
+                ? { ...comment, rating: null }
+                : comment
+            )
+          );
         }
-
-        setUserExistingRating(newRating);
+        setUserExistingReview(commentData);
         onRatingChange?.();
       }
 
-      setComments((prev) => [commentData, ...prev]);
-      setNewComment("");
-      if (canRate && !userExistingRating) {
-        setNewRating(0);
-      }
       onCommentsCountChange?.(comments.length + 1);
 
-      const ratingMessage =
-        canRate && newRating > 0
-          ? ` and ${
-              userExistingRating ? "updated your rating" : "added your rating"
-            }!`
-          : "!";
-      toast.success(`Comment added${ratingMessage}`);
+      // Reset form
+      setNewComment("");
+      setNewRating(0);
+
+      toast.success("Comment added successfully!");
     } catch (error) {
-      console.error("Error adding comment:", error);
-      toast.error("Failed to add comment");
+      console.error("Error submitting comment:", error);
+      toast.error("Failed to submit comment");
     } finally {
       setIsSubmitting(false);
     }
@@ -179,12 +174,14 @@ export function Comments({
     onHover,
     onLeave,
     readonly = false,
+    size = "text-2xl",
   }: {
     rating: number;
     onRatingChange?: (rating: number) => void;
     onHover?: (rating: number) => void;
     onLeave?: () => void;
     readonly?: boolean;
+    size?: string;
   }) => {
     return (
       <div className="flex items-center gap-1">
@@ -193,7 +190,7 @@ export function Comments({
             key={star}
             type="button"
             disabled={readonly}
-            className={`text-2xl transition-colors ${
+            className={`${size} transition-colors ${
               readonly ? "cursor-default" : "cursor-pointer hover:scale-110"
             } ${star <= rating ? "text-yellow-400" : "text-gray-300"}`}
             onClick={() => !readonly && onRatingChange?.(star)}
@@ -211,12 +208,14 @@ export function Comments({
   const handleStartEdit = (comment: Comment) => {
     setEditingCommentId(comment.id);
     setEditingContent(comment.content);
+    setEditingRating(comment.rating || 0);
   };
 
   // Cancel editing
   const handleCancelEdit = () => {
     setEditingCommentId(null);
     setEditingContent("");
+    setEditingRating(0);
   };
 
   // Save edited comment
@@ -227,24 +226,80 @@ export function Comments({
     }
 
     try {
+      const comment = comments.find((c) => c.id === commentId);
+      const wasReview = comment?.rating !== null;
+      const willBeReview = canRate && editingRating > 0;
+
+      // If changing from non-review to review, and user already has a review, remove rating from existing review
+      if (
+        !wasReview &&
+        willBeReview &&
+        userExistingReview &&
+        userExistingReview.id !== commentId
+      ) {
+        const { error: updateError } = await supabase
+          .from("comments")
+          .update({ rating: null })
+          .eq("id", userExistingReview.id);
+
+        if (updateError) throw updateError;
+      }
+
       const { error } = await supabase
         .from("comments")
-        .update({ content: editingContent.trim() })
+        .update({
+          content: editingContent.trim(),
+          rating: canRate ? editingRating || null : null,
+        })
         .eq("id", commentId)
         .eq("user_id", user?.id);
 
       if (error) throw error;
 
       setComments((prev) =>
-        prev.map((comment) =>
-          comment.id === commentId
-            ? { ...comment, content: editingContent.trim() }
-            : comment
-        )
+        prev.map((comment) => {
+          if (comment.id === commentId) {
+            return {
+              ...comment,
+              content: editingContent.trim(),
+              rating: canRate ? editingRating || null : comment.rating,
+            };
+          }
+          // If this edit created a new review and there was an old review, remove rating from old review
+          if (
+            !wasReview &&
+            willBeReview &&
+            userExistingReview &&
+            comment.id === userExistingReview.id
+          ) {
+            return { ...comment, rating: null };
+          }
+          return comment;
+        })
       );
+
+      // Update user's existing review reference
+      if (willBeReview) {
+        const updatedComment = comments.find((c) => c.id === commentId);
+        if (updatedComment) {
+          setUserExistingReview({ ...updatedComment, rating: editingRating });
+        }
+      } else if (
+        wasReview &&
+        !willBeReview &&
+        userExistingReview?.id === commentId
+      ) {
+        setUserExistingReview(null);
+      }
 
       setEditingCommentId(null);
       setEditingContent("");
+      setEditingRating(0);
+
+      if (canRate && (willBeReview || (wasReview && !willBeReview))) {
+        onRatingChange?.();
+      }
+
       toast.success("Comment updated successfully!");
     } catch (error) {
       console.error("Error updating comment:", error);
@@ -267,14 +322,32 @@ export function Comments({
 
       if (error) throw error;
 
+      const deletedComment = comments.find((c) => c.id === commentId);
+      const wasReview = deletedComment?.rating !== null;
+
       setComments((prev) => prev.filter((comment) => comment.id !== commentId));
+
+      // Reset user's existing review if this was their review
+      if (wasReview && userExistingReview?.id === commentId) {
+        setUserExistingReview(null);
+      }
+
       onCommentsCountChange?.(comments.length - 1);
+
+      if (wasReview) {
+        onRatingChange?.();
+      }
+
       toast.success("Comment deleted successfully!");
     } catch (error) {
       console.error("Error deleting comment:", error);
       toast.error("Failed to delete comment");
     }
   };
+
+  // Filter comments for different tabs
+  const allComments = comments;
+  const reviewComments = comments.filter((comment) => comment.rating !== null);
 
   if (isLoading) {
     return (
@@ -297,9 +370,149 @@ export function Comments({
     );
   }
 
+  const renderCommentsList = (commentsToRender: Comment[]) => (
+    <div className="space-y-4">
+      {commentsToRender.length > 0 ? (
+        commentsToRender.map((comment) => (
+          <div key={comment.id} className="border-b pb-4 last:border-0">
+            <div className="flex gap-3">
+              <Avatar className="w-10 h-10">
+                <AvatarImage
+                  src={comment.users?.avatar_url || ""}
+                  alt={comment.users?.username || "User"}
+                />
+                <AvatarFallback>
+                  {comment.users?.username?.charAt(0)?.toUpperCase() || "U"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <span className="font-medium">
+                        {comment.users?.full_name ||
+                          comment.users?.username ||
+                          "Anonymous"}
+                      </span>
+                      <span className="text-sm text-gray-500 ml-2">
+                        {new Date(comment.created_at).toLocaleDateString(
+                          "en-US",
+                          {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }
+                        )}
+                      </span>
+                    </div>
+                    {/* Display rating next to user info */}
+                    {comment.rating && (
+                      <div className="flex items-center gap-1">
+                        <StarRating
+                          rating={comment.rating}
+                          readonly={true}
+                          size="text-sm"
+                        />
+                        <span className="text-sm text-gray-600">
+                          ({comment.rating}/5)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  {user && user.id === comment.user_id && (
+                    <div className="flex gap-2">
+                      {editingCommentId === comment.id ? (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleSaveEdit(comment.id)}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleCancelEdit}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleStartEdit(comment)}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteComment(comment.id)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            Delete
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {editingCommentId === comment.id ? (
+                  <div className="space-y-3">
+                    {/* Rating editing for non-recipe owners */}
+                    {canRate && (
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">
+                          Update rating:
+                        </label>
+                        <StarRating
+                          rating={editingRating}
+                          onRatingChange={setEditingRating}
+                        />
+                        {editingRating > 0 && (
+                          <p className="text-sm text-gray-600">
+                            {editingRating} star{editingRating !== 1 ? "s" : ""}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    <Textarea
+                      value={editingContent}
+                      onChange={(e) => setEditingContent(e.target.value)}
+                      className="min-h-20"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-gray-700 whitespace-pre-wrap">
+                    {comment.content}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="text-center py-8 text-gray-500">
+          <p>
+            {activeTab === "reviews"
+              ? "No reviews yet. Be the first to leave a review!"
+              : "No comments yet. Be the first to comment!"}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-6">
-      <h3 className="text-lg font-bold">Comments ({comments.length})</h3>
+      <h3 className="text-lg font-bold">
+        Comments ({allComments.length}) • Reviews ({reviewComments.length})
+      </h3>
 
       {/* Add new comment */}
       {user ? (
@@ -321,9 +534,7 @@ export function Comments({
               {canRate && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">
-                    {userExistingRating
-                      ? "Update your rating:"
-                      : "Rate this recipe:"}
+                    Add a rating to this comment (optional):
                   </label>
                   <StarRating
                     rating={hoveredRating || newRating}
@@ -332,16 +543,23 @@ export function Comments({
                     onLeave={() => setHoveredRating(0)}
                   />
                   {newRating > 0 && (
-                    <p className="text-sm text-gray-600">
-                      {newRating} star{newRating !== 1 ? "s" : ""}
-                    </p>
+                    <div className="space-y-1">
+                      <p className="text-sm text-gray-600">
+                        {newRating} star{newRating !== 1 ? "s" : ""}
+                      </p>
+                      {userExistingReview && (
+                        <p className="text-sm text-amber-600">
+                          ⚠️ Adding a rating will remove your previous review
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
 
               {/* Comment textarea */}
               <Textarea
-                placeholder="Write a comment..."
+                placeholder="Write a comment or ask a question..."
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
                 className="min-h-20"
@@ -350,7 +568,7 @@ export function Comments({
           </div>
           <div className="flex justify-end">
             <Button
-              onClick={handleAddComment}
+              onClick={handleSubmitComment}
               disabled={isSubmitting || !newComment.trim()}
             >
               {isSubmitting ? "Adding..." : "Add Comment"}
@@ -366,104 +584,28 @@ export function Comments({
         </div>
       )}
 
-      {/* Comments list */}
-      <div className="space-y-4">
-        {comments.length > 0 ? (
-          comments.map((comment) => (
-            <div key={comment.id} className="border-b pb-4 last:border-0">
-              <div className="flex gap-3">
-                <Avatar className="w-10 h-10">
-                  <AvatarImage
-                    src={comment.users?.avatar_url || ""}
-                    alt={comment.users?.username || "User"}
-                  />
-                  <AvatarFallback>
-                    {comment.users?.username?.charAt(0)?.toUpperCase() || "U"}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <span className="font-medium">
-                        {comment.users?.full_name ||
-                          comment.users?.username ||
-                          "Anonymous"}
-                      </span>
-                      <span className="text-sm text-gray-500 ml-2">
-                        {new Date(comment.created_at).toLocaleDateString(
-                          "en-US",
-                          {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }
-                        )}
-                      </span>
-                    </div>
-                    {user && user.id === comment.user_id && (
-                      <div className="flex gap-2">
-                        {editingCommentId === comment.id ? (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleSaveEdit(comment.id)}
-                            >
-                              Save
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={handleCancelEdit}
-                            >
-                              Cancel
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleStartEdit(comment)}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteComment(comment.id)}
-                              className="text-red-600 hover:text-red-700"
-                            >
-                              Delete
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {editingCommentId === comment.id ? (
-                    <Textarea
-                      value={editingContent}
-                      onChange={(e) => setEditingContent(e.target.value)}
-                      className="min-h-20"
-                    />
-                  ) : (
-                    <p className="text-gray-700 whitespace-pre-wrap">
-                      {comment.content}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="text-center py-8 text-gray-500">
-            <p>No comments yet. Be the first to comment!</p>
-          </div>
-        )}
-      </div>
+      {/* Comments tabs */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as "all" | "reviews")}
+      >
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="all">
+            All Comments ({allComments.length})
+          </TabsTrigger>
+          <TabsTrigger value="reviews">
+            Reviews Only ({reviewComments.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="all" className="mt-4">
+          {renderCommentsList(allComments)}
+        </TabsContent>
+
+        <TabsContent value="reviews" className="mt-4">
+          {renderCommentsList(reviewComments)}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

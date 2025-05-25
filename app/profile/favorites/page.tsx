@@ -12,9 +12,9 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 type Recipe = Database["public"]["Tables"]["recipes"]["Row"] & {
-  categories?: { name: string } | null;
-  ratings?: { rating: number }[];
   users?: { username: string; full_name: string | null };
+  categories?: { name: string } | null;
+  comments?: { rating: number | null }[];
 };
 
 type SavedRecipe = Recipe & {
@@ -45,15 +45,17 @@ export default function SavedRecipesPage() {
           .from("favorites")
           .select(
             `
+            *,
             recipes(
               *,
+              users(username, full_name),
               categories(name),
-              ratings(rating),
-              users(username, full_name)
+              comments(rating)
             )
           `
           )
-          .eq("user_id", user.id);
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
 
         if (error) throw error;
 
@@ -85,11 +87,23 @@ export default function SavedRecipesPage() {
     }
   }, [user, authLoading]);
 
-  // Calculate average rating
+  // Calculate average rating from comments
   const getAverageRating = (recipe: Recipe) => {
-    if (!recipe.ratings || recipe.ratings.length === 0) return "0.0";
-    const sum = recipe.ratings.reduce((acc, r) => acc + r.rating, 0);
-    return (sum / recipe.ratings.length).toFixed(1);
+    if (!recipe.comments) return "0.0";
+    const ratingsOnly = recipe.comments
+      .map((c) => c.rating)
+      .filter((rating): rating is number => rating !== null);
+
+    if (ratingsOnly.length === 0) return "0.0";
+
+    const sum = ratingsOnly.reduce((acc, r) => acc + r, 0);
+    return (sum / ratingsOnly.length).toFixed(1);
+  };
+
+  // Get ratings count
+  const getRatingsCount = (recipe: Recipe) => {
+    if (!recipe.comments) return 0;
+    return recipe.comments.filter((c) => c.rating !== null).length;
   };
 
   // Handle unsaving recipe
@@ -294,9 +308,11 @@ export default function SavedRecipesPage() {
                         >
                           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                         </svg>
-                        <span>{getAverageRating(recipe)}</span>
-                        <span className="text-gray-500">
-                          ({recipe.ratings?.length || 0})
+                        <span className="text-sm font-medium">
+                          {getAverageRating(recipe)}
+                        </span>
+                        <span className="text-sm text-gray-500">
+                          ({getRatingsCount(recipe)})
                         </span>
                       </div>
                       <span className="text-gray-500">

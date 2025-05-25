@@ -21,7 +21,7 @@ type Recipe = Database["public"]["Tables"]["recipes"]["Row"] & {
   categories?: {
     name: string;
   } | null;
-  ratings?: { rating: number }[];
+  comments?: { rating: number | null }[];
   _count?: {
     favorites: number;
     comments: number;
@@ -44,25 +44,25 @@ export default function DashboardPage() {
         setIsLoading(true);
 
         // Get recipes from other users (not the current user)
-        const { data, error } = await supabase
+        const { data: recentRecipes, error: recipesError } = await supabase
           .from("recipes")
           .select(
             `
             *,
-            users(username, full_name, avatar_url),
+            users(username, full_name),
             categories(name),
-            ratings(rating)
+            comments(rating)
           `
           )
           .neq("user_id", user.id) // Exclude current user's recipes
           .order("created_at", { ascending: false })
-          .limit(12);
+          .limit(6);
 
-        if (error) throw error;
+        if (recipesError) throw recipesError;
 
         // Get favorites and comments count for each recipe, plus check if user has favorited each recipe
         const recipesWithCounts = await Promise.all(
-          (data || []).map(async (recipe) => {
+          (recentRecipes || []).map(async (recipe) => {
             try {
               const [favoritesCount, commentsCount, userFavorite] =
                 await Promise.all([
@@ -122,11 +122,23 @@ export default function DashboardPage() {
     }
   }, [user, authLoading]);
 
-  // Calculate average rating
+  // Calculate average rating from comments
   const getAverageRating = (recipe: Recipe) => {
-    if (!recipe.ratings || recipe.ratings.length === 0) return 0;
-    const sum = recipe.ratings.reduce((acc, r) => acc + r.rating, 0);
-    return (sum / recipe.ratings.length).toFixed(1);
+    if (!recipe.comments) return 0;
+    const ratingsOnly = recipe.comments
+      .map((c) => c.rating)
+      .filter((rating): rating is number => rating !== null);
+
+    if (ratingsOnly.length === 0) return 0;
+
+    const sum = ratingsOnly.reduce((acc, r) => acc + r, 0);
+    return (sum / ratingsOnly.length).toFixed(1);
+  };
+
+  // Get ratings count
+  const getRatingsCount = (recipe: Recipe) => {
+    if (!recipe.comments) return 0;
+    return recipe.comments.filter((c) => c.rating !== null).length;
   };
 
   // Toggle favorite
@@ -383,13 +395,25 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-3 text-sm text-gray-500">
                         <div className="flex items-center gap-1">
                           <svg
-                            className="w-4 h-4 text-yellow-400"
-                            fill="currentColor"
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
                             viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="text-yellow-400"
                           >
-                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                           </svg>
-                          <span>{getAverageRating(recipe) || "0.0"}</span>
+                          <span className="text-sm font-medium">
+                            {getAverageRating(recipe)}
+                          </span>
+                          <span className="text-sm text-gray-500">
+                            ({getRatingsCount(recipe)})
+                          </span>
                         </div>
                         <div className="flex items-center gap-1">
                           <svg

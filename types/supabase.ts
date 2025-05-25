@@ -111,6 +111,7 @@ export interface Database {
           user_id: string;
           recipe_id: string;
           content: string;
+          rating: number | null;
           created_at: string;
         };
         Insert: {
@@ -118,6 +119,7 @@ export interface Database {
           user_id: string;
           recipe_id: string;
           content: string;
+          rating?: number | null;
           created_at?: string;
         };
         Update: {
@@ -125,29 +127,7 @@ export interface Database {
           user_id?: string;
           recipe_id?: string;
           content?: string;
-          created_at?: string;
-        };
-      };
-      ratings: {
-        Row: {
-          id: string;
-          user_id: string;
-          recipe_id: string;
-          rating: number;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          recipe_id: string;
-          rating: number;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          recipe_id?: string;
-          rating?: number;
+          rating?: number | null;
           created_at?: string;
         };
       };

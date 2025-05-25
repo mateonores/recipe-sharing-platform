@@ -14,7 +14,8 @@ import { toast } from "sonner";
 type Recipe = Database["public"]["Tables"]["recipes"]["Row"] & {
   users?: { username: string; full_name: string | null };
   categories?: { name: string } | null;
-  ratings?: { rating: number }[];
+  comments?: { rating: number | null }[];
+  _count?: { comments: number };
 };
 
 type Category = Database["public"]["Tables"]["categories"]["Row"];
@@ -39,7 +40,7 @@ export default function RecipesPage() {
             *,
             users(username, full_name),
             categories(name),
-            ratings(rating)
+            comments(rating)
           `
           )
           .order("created_at", { ascending: false });
@@ -96,11 +97,23 @@ export default function RecipesPage() {
     fetchCategories();
   }, []);
 
-  // Calculate average rating
+  // Calculate average rating from comments
   const getAverageRating = (recipe: Recipe) => {
-    if (!recipe.ratings || recipe.ratings.length === 0) return 0;
-    const sum = recipe.ratings.reduce((acc, r) => acc + r.rating, 0);
-    return (sum / recipe.ratings.length).toFixed(1);
+    if (!recipe.comments) return "0";
+    const ratingsOnly = recipe.comments
+      .map((c) => c.rating)
+      .filter((rating): rating is number => rating !== null);
+
+    if (ratingsOnly.length === 0) return "0";
+
+    const sum = ratingsOnly.reduce((acc, r) => acc + r, 0);
+    return (sum / ratingsOnly.length).toFixed(1);
+  };
+
+  // Get ratings count
+  const getRatingsCount = (recipe: Recipe) => {
+    if (!recipe.comments) return 0;
+    return recipe.comments.filter((c) => c.rating !== null).length;
   };
 
   return (
@@ -219,7 +232,7 @@ export default function RecipesPage() {
                                 {getAverageRating(recipe)}
                               </span>
                               <span className="text-sm text-gray-500">
-                                ({recipe.ratings?.length || 0})
+                                ({getRatingsCount(recipe)})
                               </span>
                             </div>
                             <span className="text-sm text-gray-500">

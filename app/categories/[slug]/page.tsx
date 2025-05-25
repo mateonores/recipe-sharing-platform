@@ -1,13 +1,23 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/lib/auth-context";
+import { supabase } from "@/lib/supabase";
+import { Database } from "@/types/supabase";
 import Image from "next/image";
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+
+type Recipe = Database["public"]["Tables"]["recipes"]["Row"] & {
+  users?: { username: string; full_name: string | null };
+  categories?: { name: string } | null;
+  ratings?: { rating: number }[];
+};
+
+type Category = Database["public"]["Tables"]["categories"]["Row"];
 
 interface CategoryPageProps {
   params: {
@@ -16,229 +26,228 @@ interface CategoryPageProps {
 }
 
 export default function CategoryPage({ params }: CategoryPageProps) {
-  // Find the category from the slug
-  const category = categories.find((cat) => cat.slug === params.slug);
+  const { user } = useAuth();
+  const [category, setCategory] = useState<Category | null>(null);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Filter recipes by category
-  const categoryRecipes = allRecipes.filter(
-    (recipe) => recipe.category.toLowerCase() === params.slug
-  );
+  // Fetch category and recipes
+  useEffect(() => {
+    const fetchCategoryAndRecipes = async () => {
+      try {
+        setIsLoading(true);
+
+        // First, find the category by slug
+        const { data: categoryData, error: categoryError } = await supabase
+          .from("categories")
+          .select("*")
+          .eq("slug", params.slug)
+          .single();
+
+        if (categoryError) throw categoryError;
+        setCategory(categoryData);
+
+        // Then fetch recipes for this category
+        const { data: recipesData, error: recipesError } = await supabase
+          .from("recipes")
+          .select(
+            `
+            *,
+            users(username, full_name),
+            categories(name),
+            ratings(rating)
+          `
+          )
+          .eq("category_id", categoryData.id)
+          .order("created_at", { ascending: false });
+
+        if (recipesError) throw recipesError;
+        setRecipes(recipesData || []);
+      } catch (error) {
+        console.error("Error fetching category data:", error);
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "PGRST116"
+        ) {
+          // Category not found
+          notFound();
+        }
+        toast.error("Failed to load category");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCategoryAndRecipes();
+  }, [params.slug]);
+
+  // Calculate average rating
+  const getAverageRating = (recipe: Recipe) => {
+    if (!recipe.ratings || recipe.ratings.length === 0) return 0;
+    const sum = recipe.ratings.reduce((acc, r) => acc + r.rating, 0);
+    return (sum / recipe.ratings.length).toFixed(1);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="container py-12 px-4 md:px-6">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-500">Loading category...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!category && !isLoading) {
+    notFound();
+  }
+
+  if (!category) {
+    return null; // This should never be reached due to notFound() above, but satisfies TypeScript
+  }
 
   return (
-    <div className="container px-4 py-12 md:px-6 md:py-16">
+    <div className="container py-12 px-4 md:px-6">
       <div className="flex flex-col gap-8">
-        {category ? (
-          <>
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 flex items-center justify-center rounded-full bg-slate-200 text-2xl">
-                  {category.emoji}
-                </div>
-                <h1 className="text-3xl font-bold tracking-tight">
-                  {category.name} Recipes
-                </h1>
-              </div>
-              <p className="text-gray-500 max-w-3xl">{category.description}</p>
-            </div>
+        {/* Category Header */}
+        <div className="text-center space-y-4">
+          <Link
+            href="/categories"
+            className="text-sm text-muted-foreground hover:underline inline-flex items-center gap-1 w-fit mx-auto"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            Back to categories
+          </Link>
 
-            {categoryRecipes.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {categoryRecipes.map((recipe) => (
-                  <div key={recipe.id}>
-                    <Link
-                      href={`/recipes/${recipe.id}`}
-                      className="block h-full"
-                    >
-                      <Card className="overflow-hidden h-full hover:shadow-md transition-shadow">
-                        <div className="relative aspect-video overflow-hidden">
-                          <Image
-                            src={recipe.image}
-                            alt={recipe.title}
-                            fill
-                            className="object-cover"
-                          />
-                        </div>
-                        <CardHeader className="p-4">
-                          <div className="flex gap-2 flex-wrap mb-2">
-                            <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded">
-                              {recipe.category}
-                            </span>
-                            <span className="text-xs px-2 py-1 bg-slate-100 text-slate-800 rounded">
-                              {recipe.time} mins
-                            </span>
-                          </div>
-                          <CardTitle className="line-clamp-2 text-lg">
-                            {recipe.title}
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-4 pt-0">
-                          <p className="text-sm text-gray-500 line-clamp-2">
-                            {recipe.description}
-                          </p>
-                        </CardContent>
-                        <CardFooter className="p-4 border-t text-sm flex justify-between text-gray-500">
-                          <span>{recipe.author}</span>
-                          <div className="flex items-center gap-1">
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              className="text-yellow-400"
-                            >
-                              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                            </svg>
-                            <span>{recipe.rating}</span>
-                          </div>
-                        </CardFooter>
-                      </Card>
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12 bg-slate-50 rounded-lg">
-                <h2 className="text-xl font-semibold mb-2">No recipes found</h2>
-                <p className="text-gray-500 mb-6">
-                  There are no recipes in this category yet.
-                </p>
-                <Button asChild>
-                  <Link href="/recipes/create">Create the First Recipe</Link>
-                </Button>
-              </div>
-            )}
-          </>
+          <div className="space-y-2">
+            <div className="text-6xl">{category.emoji || "🍽️"}</div>
+            <h1 className="text-4xl font-bold tracking-tight">
+              {category.name}
+            </h1>
+            <p className="text-xl text-gray-500 max-w-2xl mx-auto">
+              {category.description ||
+                `Discover delicious ${category.name.toLowerCase()} recipes`}
+            </p>
+          </div>
+
+          <div className="flex items-center justify-center gap-4 text-sm text-gray-500">
+            <span>{recipes.length} recipes</span>
+          </div>
+        </div>
+
+        {/* Recipes Grid */}
+        {recipes.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {recipes.map((recipe) => (
+              <Link
+                key={recipe.id}
+                href={`/recipes/${recipe.id}`}
+                className="block h-full"
+              >
+                <Card className="overflow-hidden h-full hover:shadow-md transition-shadow">
+                  {recipe.image_url && (
+                    <div className="relative aspect-video overflow-hidden">
+                      <Image
+                        src={recipe.image_url}
+                        alt={recipe.title}
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                  )}
+                  <CardHeader className="p-4">
+                    <div className="flex gap-2 flex-wrap mb-2">
+                      <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded">
+                        {category.name}
+                      </span>
+                      {recipe.time && (
+                        <span className="text-xs px-2 py-1 bg-slate-100 text-slate-800 rounded">
+                          {recipe.time} mins
+                        </span>
+                      )}
+                    </div>
+                    <CardTitle className="line-clamp-2 text-lg">
+                      {recipe.title}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4 pt-0">
+                    <p className="text-sm text-gray-500 line-clamp-2">
+                      {recipe.description || "No description available"}
+                    </p>
+                    <div className="flex items-center justify-between mt-4">
+                      <div className="flex items-center space-x-1">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="text-yellow-400"
+                        >
+                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                        </svg>
+                        <span className="text-sm font-medium">
+                          {getAverageRating(recipe)}
+                        </span>
+                        <span className="text-sm text-gray-500">
+                          ({recipe.ratings?.length || 0})
+                        </span>
+                      </div>
+                      <span className="text-sm text-gray-500">
+                        by{" "}
+                        {recipe.users?.full_name ||
+                          recipe.users?.username ||
+                          "Anonymous"}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
         ) : (
           <div className="text-center py-12">
-            <h1 className="text-3xl font-bold mb-4">Category Not Found</h1>
+            <div className="mb-4">
+              <div className="text-6xl opacity-50">
+                {category.emoji || "🍽️"}
+              </div>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              No {category.name.toLowerCase()} recipes yet
+            </h3>
             <p className="text-gray-500 mb-6">
-              We couldn&apos;t find the category you&apos;re looking for.
+              Be the first to share a {category.name.toLowerCase()} recipe with
+              the community!
             </p>
-            <Button asChild>
-              <Link href="/recipes">Browse All Recipes</Link>
-            </Button>
+            {user && (
+              <Button asChild>
+                <Link href="/recipes/create">Create Recipe</Link>
+              </Button>
+            )}
           </div>
         )}
       </div>
     </div>
   );
 }
-
-const categories = [
-  {
-    name: "Breakfast",
-    emoji: "🍳",
-    slug: "breakfast",
-    description:
-      "Start your day right with these delicious breakfast recipes, from quick and easy options to weekend brunch favorites.",
-  },
-  {
-    name: "Lunch",
-    emoji: "🥪",
-    slug: "lunch",
-    description:
-      "Perfect midday meal ideas that are satisfying and quick to prepare, whether you&apos;re at home or packing lunch for work or school.",
-  },
-  {
-    name: "Dinner",
-    emoji: "🍝",
-    slug: "dinner",
-    description:
-      "Hearty and delicious dinner recipes for the whole family, including quick weeknight meals and special occasion dishes.",
-  },
-  {
-    name: "Desserts",
-    emoji: "🍰",
-    slug: "desserts",
-    description:
-      "Indulge your sweet tooth with these mouthwatering desserts, from simple cookies to impressive cakes and everything in between.",
-  },
-  {
-    name: "Vegan",
-    emoji: "🥗",
-    slug: "vegan",
-    description:
-      "Plant-based recipes that are both delicious and satisfying, perfect for vegans or anyone looking to incorporate more plant foods.",
-  },
-  {
-    name: "Quick Meals",
-    emoji: "⏱️",
-    slug: "quick-meals",
-    description:
-      "Delicious recipes ready in 30 minutes or less, perfect for busy weeknights when you need dinner on the table fast.",
-  },
-];
-
-const allRecipes = [
-  {
-    id: "1",
-    title: "Homemade Margherita Pizza",
-    description:
-      "A classic Italian pizza with fresh mozzarella, tomatoes, and basil on a crispy crust.",
-    author: "Chef Maria",
-    category: "Dinner",
-    time: 45,
-    rating: 4.8,
-    image: "/recipes/pizza.jpg",
-  },
-  {
-    id: "2",
-    title: "Classic Beef Burger with Caramelized Onions",
-    description:
-      "Juicy beef burgers topped with sweet caramelized onions and all the fixings.",
-    author: "Chef John",
-    category: "Lunch",
-    time: 30,
-    rating: 4.6,
-    image: "/recipes/burger.jpg",
-  },
-  {
-    id: "3",
-    title: "Chocolate Lava Cake",
-    description:
-      "Decadent chocolate cake with a molten chocolate center, perfect for chocolate lovers.",
-    author: "Chef Lily",
-    category: "Desserts",
-    time: 25,
-    rating: 4.9,
-    image: "/recipes/chocolate-cake.jpg",
-  },
-  {
-    id: "4",
-    title: "Avocado Toast with Poached Eggs",
-    description:
-      "Creamy avocado spread on toasted sourdough, topped with perfectly poached eggs and a sprinkle of red pepper flakes.",
-    author: "Chef Emma",
-    category: "Breakfast",
-    time: 15,
-    rating: 4.3,
-    image: "/recipes/avocado-toast.jpg",
-  },
-  {
-    id: "5",
-    title: "Vegetable Stir Fry with Tofu",
-    description:
-      "Quick and healthy stir-fried vegetables with crispy tofu in a savory sauce.",
-    author: "Chef Mei",
-    category: "Vegan",
-    time: 25,
-    rating: 4.2,
-    image: "/recipes/stir-fry.jpg",
-  },
-  {
-    id: "6",
-    title: "15-Minute Pasta Aglio e Olio",
-    description:
-      "A simple Italian pasta dish with garlic, olive oil, chili flakes, and parsley. Quick, delicious, and satisfying.",
-    author: "Chef Antonio",
-    category: "Quick-meals",
-    time: 15,
-    rating: 4.5,
-    image: "/recipes/pasta.jpg",
-  },
-];

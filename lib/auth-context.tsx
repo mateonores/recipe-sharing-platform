@@ -18,6 +18,7 @@ interface AuthContextProps {
   ) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 // Create the auth context
@@ -124,7 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     try {
       setIsLoading(true);
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -134,9 +135,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw error;
       }
 
-      toast.success("Signed in successfully!");
-      router.push("/");
-      router.refresh(); // Ensure server components refresh with new session
+      if (data.session) {
+        // Update local state immediately
+        setSession(data.session);
+        setUser(data.session.user);
+
+        toast.success("Signed in successfully!");
+
+        // Wait a moment for cookies to be set and state to propagate
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        // Force a page refresh to ensure middleware recognizes the session
+        window.location.href = "/dashboard";
+      }
     } catch (error) {
       if (error instanceof Error) {
         toast.error(error.message);
@@ -144,6 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         toast.error("An unexpected error occurred");
         console.error(error);
       }
+      throw error; // Re-throw to allow login page to handle it
     } finally {
       setIsLoading(false);
     }
@@ -161,8 +173,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       toast.success("Signed out successfully");
-      router.push("/");
-      router.refresh(); // Ensure server components refresh
+
+      // Clear states immediately
+      setUser(null);
+      setSession(null);
+
+      // Wait a moment for cookies to be cleared and state to propagate
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Force a page refresh to ensure middleware recognizes the logout
+      window.location.href = "/";
     } catch (error) {
       if (error instanceof Error) {
         toast.error(error.message);
@@ -175,6 +195,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const refreshProfile = async () => {
+    if (user) {
+      // Trigger a profile refresh by emitting a custom event
+      window.dispatchEvent(new CustomEvent("profile-updated"));
+    }
+  };
+
   const value = {
     user,
     session,
@@ -182,6 +209,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signIn,
     signOut,
+    refreshProfile,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

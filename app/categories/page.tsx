@@ -1,84 +1,150 @@
+"use client";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { supabase } from "@/lib/supabase";
+import { Database } from "@/types/supabase";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+
+type Category = Database["public"]["Tables"]["categories"]["Row"] & {
+  _count?: {
+    recipes: number;
+  };
+};
 
 export default function CategoriesPage() {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch categories
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setIsLoading(true);
+        const { data, error } = await supabase
+          .from("categories")
+          .select("*")
+          .order("name");
+
+        if (error) throw error;
+
+        // Get recipe count for each category
+        const categoriesWithCounts = await Promise.all(
+          (data || []).map(async (category) => {
+            const { count } = await supabase
+              .from("recipes")
+              .select("id", { count: "exact" })
+              .eq("category_id", category.id);
+
+            return {
+              ...category,
+              _count: {
+                recipes: count || 0,
+              },
+            };
+          })
+        );
+
+        setCategories(categoriesWithCounts);
+      } catch (error) {
+        console.error("Error fetching categories:", error);
+        toast.error("Failed to load categories");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCategories();
+  }, []);
+
   return (
     <div className="container px-4 py-12 md:px-6 md:py-16">
       <div className="flex flex-col gap-8">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight">
-            Browse by Category
+        <div className="text-center space-y-4">
+          <h1 className="text-4xl font-bold tracking-tight">
+            Recipe Categories
           </h1>
-          <p className="text-gray-500">
-            Explore our recipes organized by category to find exactly what
-            you&apos;re looking for
+          <p className="text-xl text-gray-500 max-w-2xl mx-auto">
+            Explore recipes organized by category. From breakfast to desserts,
+            find exactly what you&apos;re craving.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {categories.map((category) => (
-            <Link
-              key={category.slug}
-              href={`/categories/${category.slug}`}
-              className="flex items-start gap-4 p-6 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors"
-            >
-              <div className="w-12 h-12 flex items-center justify-center rounded-full bg-slate-200 text-2xl">
-                {category.emoji}
+        {/* Loading state */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-500">Loading categories...</p>
+            </div>
+          </div>
+        )}
+
+        {/* Categories grid */}
+        {!isLoading && (
+          <>
+            {categories.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {categories.map((category) => (
+                  <Link
+                    key={category.id}
+                    href={`/categories/${category.slug}`}
+                    className="block h-full"
+                  >
+                    <Card className="h-full hover:shadow-md transition-shadow cursor-pointer">
+                      <CardHeader className="text-center pb-4">
+                        <div className="text-5xl mb-4">
+                          {category.emoji || "🍽️"}
+                        </div>
+                        <CardTitle className="text-xl">
+                          {category.name}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="text-center">
+                        <p className="text-gray-500 line-clamp-3 mb-4">
+                          {category.description ||
+                            `Discover delicious ${category.name.toLowerCase()} recipes`}
+                        </p>
+                        <div className="flex items-center justify-center gap-4 text-sm text-gray-500">
+                          <span>{category._count?.recipes || 0} recipes</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
               </div>
-              <div className="flex-1">
-                <h2 className="text-xl font-semibold mb-2">{category.name}</h2>
-                <p className="text-gray-500 text-sm line-clamp-2">
-                  {category.description}
+            ) : (
+              <div className="text-center py-12">
+                <div className="mb-4">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="64"
+                    height="64"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="mx-auto text-gray-400"
+                  >
+                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                    <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  No categories found
+                </h3>
+                <p className="text-gray-500 mb-6">
+                  Categories will appear here once they&apos;re added to the
+                  system.
                 </p>
               </div>
-            </Link>
-          ))}
-        </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
 }
-
-const categories = [
-  {
-    name: "Breakfast",
-    emoji: "🍳",
-    slug: "breakfast",
-    description:
-      "Start your day right with these delicious breakfast recipes, from quick and easy options to weekend brunch favorites.",
-  },
-  {
-    name: "Lunch",
-    emoji: "🥪",
-    slug: "lunch",
-    description:
-      "Perfect midday meal ideas that are satisfying and quick to prepare, whether you&apos;re at home or packing lunch for work or school.",
-  },
-  {
-    name: "Dinner",
-    emoji: "🍝",
-    slug: "dinner",
-    description:
-      "Hearty and delicious dinner recipes for the whole family, including quick weeknight meals and special occasion dishes.",
-  },
-  {
-    name: "Desserts",
-    emoji: "🍰",
-    slug: "desserts",
-    description:
-      "Indulge your sweet tooth with these mouthwatering desserts, from simple cookies to impressive cakes and everything in between.",
-  },
-  {
-    name: "Vegan",
-    emoji: "🥗",
-    slug: "vegan",
-    description:
-      "Plant-based recipes that are both delicious and satisfying, perfect for vegans or anyone looking to incorporate more plant foods.",
-  },
-  {
-    name: "Quick Meals",
-    emoji: "⏱️",
-    slug: "quick-meals",
-    description:
-      "Delicious recipes ready in 30 minutes or less, perfect for busy weeknights when you need dinner on the table fast.",
-  },
-];

@@ -24,6 +24,7 @@ import { supabase } from "@/lib/supabase";
 import { Database } from "@/types/supabase";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { PlusCircle, XCircle } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -31,6 +32,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 type Category = Database["public"]["Tables"]["categories"]["Row"];
+type Recipe = Database["public"]["Tables"]["recipes"]["Row"];
 
 // Form validation schema
 const recipeFormSchema = z.object({
@@ -58,13 +60,22 @@ const recipeFormSchema = z.object({
 
 type RecipeFormValues = z.infer<typeof recipeFormSchema>;
 
-export default function CreateRecipePage() {
+interface EditRecipePageProps {
+  params: Promise<{
+    id: string;
+  }>;
+}
+
+export default function EditRecipePage({ params }: EditRecipePageProps) {
   const { user } = useAuth();
   const router = useRouter();
   const [categories, setCategories] = useState<Category[]>([]);
+  const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [recipeId, setRecipeId] = useState<string | null>(null);
 
   const form = useForm<RecipeFormValues>({
     resolver: zodResolver(recipeFormSchema),
@@ -78,6 +89,15 @@ export default function CreateRecipePage() {
       image: undefined,
     },
   });
+
+  // Unwrap params
+  useEffect(() => {
+    const unwrapParams = async () => {
+      const resolvedParams = await params;
+      setRecipeId(resolvedParams.id);
+    };
+    unwrapParams();
+  }, [params]);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -109,6 +129,73 @@ export default function CreateRecipePage() {
 
     fetchCategories();
   }, []);
+
+  // Load recipe data
+  useEffect(() => {
+    if (!recipeId || !user) return;
+
+    const fetchRecipe = async () => {
+      try {
+        setIsLoading(true);
+        const { data, error } = await supabase
+          .from("recipes")
+          .select("*")
+          .eq("id", recipeId)
+          .eq("user_id", user.id) // Ensure user owns the recipe
+          .single();
+
+        if (error) {
+          if (error.code === "PGRST116") {
+            toast.error(
+              "Recipe not found or you don't have permission to edit it"
+            );
+            router.push("/recipes");
+            return;
+          }
+          throw error;
+        }
+
+        setRecipe(data);
+
+        // Parse ingredients and instructions
+        const ingredients = Array.isArray(data.ingredients)
+          ? data.ingredients
+          : typeof data.ingredients === "string"
+          ? JSON.parse(data.ingredients)
+          : [""];
+
+        const instructions = Array.isArray(data.instructions)
+          ? data.instructions
+          : typeof data.instructions === "string"
+          ? JSON.parse(data.instructions)
+          : [""];
+
+        // Set form values
+        form.reset({
+          title: data.title,
+          description: data.description || "",
+          category_id: data.category_id || "",
+          time: data.time || 30,
+          ingredients: ingredients.length > 0 ? ingredients : [""],
+          instructions: instructions.length > 0 ? instructions : [""],
+          image: undefined,
+        });
+
+        // Set current image preview if exists
+        if (data.image_url) {
+          setImagePreview(data.image_url);
+        }
+      } catch (error) {
+        console.error("Error fetching recipe:", error);
+        toast.error("Failed to load recipe");
+        router.push("/recipes");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRecipe();
+  }, [recipeId, user, router, form]);
 
   function addIngredient() {
     const currentIngredients = form.getValues("ingredients");
@@ -177,16 +264,15 @@ export default function CreateRecipePage() {
       if (uploadError) {
         console.error("Error uploading image:", uploadError);
 
-        // If bucket doesn't exist, provide helpful error message
         if (uploadError.message.includes("Bucket not found")) {
           toast.error(
-            "Image storage not configured. Recipe will be created without image."
+            "Image storage not configured. Recipe will be updated without new image."
           );
           return null;
         }
 
         toast.error(
-          "Failed to upload image. Recipe will be created without image."
+          "Failed to upload image. Recipe will be updated without new image."
         );
         return null;
       }
@@ -199,15 +285,15 @@ export default function CreateRecipePage() {
     } catch (error) {
       console.error("Error uploading image:", error);
       toast.error(
-        "Failed to upload image. Recipe will be created without image."
+        "Failed to upload image. Recipe will be updated without new image."
       );
       return null;
     }
   }
 
   async function onSubmit(values: RecipeFormValues) {
-    if (!user) {
-      toast.error("You must be logged in to create a recipe");
+    if (!user || !recipe) {
+      toast.error("You must be logged in to edit a recipe");
       return;
     }
 
@@ -234,24 +320,21 @@ export default function CreateRecipePage() {
         return;
       }
 
-      // Upload image if provided
-      let imageUrl: string | null = null;
+      // Upload new image if provided
+      let imageUrl: string | null = recipe.image_url; // Keep existing image by default
       if (values.image) {
-        toast.loading("Uploading image...");
-        imageUrl = await uploadImage(values.image);
-        if (!imageUrl) {
-          toast.error(
-            "Failed to upload image. Recipe will be created without image."
-          );
+        toast.loading("Uploading new image...");
+        const newImageUrl = await uploadImage(values.image);
+        if (newImageUrl) {
+          imageUrl = newImageUrl;
         }
         toast.dismiss();
       }
 
-      // Create recipe in database
-      const { data, error } = await supabase
+      // Update recipe in database
+      const { error } = await supabase
         .from("recipes")
-        .insert({
-          user_id: user.id,
+        .update({
           title: values.title,
           description: values.description,
           category_id: values.category_id,
@@ -259,31 +342,49 @@ export default function CreateRecipePage() {
           ingredients: filteredIngredients,
           instructions: filteredInstructions,
           image_url: imageUrl,
+          updated_at: new Date().toISOString(),
         })
-        .select()
-        .single();
+        .eq("id", recipe.id)
+        .eq("user_id", user.id); // Ensure user owns the recipe
 
       if (error) throw error;
 
-      toast.success("Recipe created successfully!");
-      router.push(`/recipes/${data.id}`);
+      toast.success("Recipe updated successfully!");
+      router.push(`/recipes/${recipe.id}`);
     } catch (error) {
-      console.error("Error creating recipe:", error);
-      toast.error("Failed to create recipe. Please try again.");
+      console.error("Error updating recipe:", error);
+      toast.error("Failed to update recipe. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  // Show loading if user is not loaded yet
-  if (!user) {
+  // Show loading if user is not loaded yet or recipe is loading
+  if (!user || isLoading) {
     return (
       <div className="container py-12 px-4 md:px-6">
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-500">Loading...</p>
+            <p className="text-gray-500">Loading recipe...</p>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!recipe) {
+    return (
+      <div className="container py-12 px-4 md:px-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Recipe not found</h1>
+          <p className="text-gray-500 mb-8">
+            The recipe you&apos;re trying to edit doesn&apos;t exist or you
+            don&apos;t have permission to edit it.
+          </p>
+          <Button asChild>
+            <Link href="/recipes">Browse Recipes</Link>
+          </Button>
         </div>
       </div>
     );
@@ -293,10 +394,8 @@ export default function CreateRecipePage() {
     <div className="container py-12 px-4 md:px-6">
       <div className="max-w-3xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Create a New Recipe</h1>
-          <p className="text-gray-500">
-            Share your culinary masterpiece with our community
-          </p>
+          <h1 className="text-3xl font-bold mb-2">Edit Recipe</h1>
+          <p className="text-gray-500">Update your recipe details</p>
         </div>
 
         <Form {...form}>
@@ -349,7 +448,7 @@ export default function CreateRecipePage() {
                       <FormLabel>Category *</FormLabel>
                       <Select
                         onValueChange={field.onChange}
-                        defaultValue={field.value}
+                        value={field.value}
                         disabled={isLoadingCategories}
                       >
                         <FormControl>
@@ -512,7 +611,7 @@ export default function CreateRecipePage() {
               <h2 className="text-xl font-semibold">Recipe Image</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <FormLabel>Upload an Image</FormLabel>
+                  <FormLabel>Upload a New Image (Optional)</FormLabel>
                   <Input
                     type="file"
                     accept="image/*"
@@ -520,8 +619,8 @@ export default function CreateRecipePage() {
                     className="mt-2"
                   />
                   <FormDescription>
-                    Upload a high-quality image of your finished dish. Maximum
-                    file size: 5MB. Recommended size: 1200×800 pixels.
+                    Upload a new image to replace the current one. Maximum file
+                    size: 5MB. Leave empty to keep current image.
                   </FormDescription>
                 </div>
                 {imagePreview && (
@@ -541,13 +640,13 @@ export default function CreateRecipePage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => router.back()}
+                onClick={() => router.push(`/recipes/${recipe.id}`)}
                 disabled={isSubmitting}
               >
                 Cancel
               </Button>
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Creating Recipe..." : "Create Recipe"}
+                {isSubmitting ? "Updating Recipe..." : "Update Recipe"}
               </Button>
             </div>
           </form>

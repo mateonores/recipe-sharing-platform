@@ -27,13 +27,16 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 type Profile = Database["public"]["Tables"]["users"]["Row"];
+type Category = Database["public"]["Tables"]["categories"]["Row"];
 
 export function Header() {
-  const pathname = usePathname();
   const { user, signOut } = useAuth();
+  const pathname = usePathname();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Load user profile
   useEffect(() => {
     async function loadProfile() {
       if (!user) {
@@ -60,7 +63,67 @@ export function Header() {
     }
 
     loadProfile();
+
+    // Listen for profile update events
+    const handleProfileUpdate = () => {
+      loadProfile();
+    };
+
+    window.addEventListener("profile-updated", handleProfileUpdate);
+
+    // Set up real-time subscription for profile updates
+    if (user) {
+      const channel = supabase
+        .channel("profile-changes")
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "users",
+            filter: `id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log("Profile updated:", payload);
+            setProfile(payload.new as Profile);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        window.removeEventListener("profile-updated", handleProfileUpdate);
+        supabase.removeChannel(channel);
+      };
+    }
+
+    return () => {
+      window.removeEventListener("profile-updated", handleProfileUpdate);
+    };
   }, [user]);
+
+  // Load categories
+  useEffect(() => {
+    async function loadCategories() {
+      try {
+        const { data, error } = await supabase
+          .from("categories")
+          .select("*")
+          .order("name")
+          .limit(6); // Limit to 6 categories for the dropdown
+
+        if (error) {
+          console.error("Error loading categories:", error);
+          return;
+        }
+
+        setCategories(data || []);
+      } catch (error) {
+        console.error("Error loading categories:", error);
+      }
+    }
+
+    loadCategories();
+  }, []);
 
   const handleLogout = async () => {
     setIsLoading(true);
@@ -83,72 +146,99 @@ export function Header() {
     return "U";
   };
 
+  // Determine home URL based on authentication status
+  const homeUrl = user ? "/dashboard" : "/";
+
   return (
     <header className="w-full border-b">
       <div className="container flex h-16 items-center justify-between">
-        <Link href="/" className="text-2xl font-bold">
+        <Link href={homeUrl} className="text-2xl font-bold ps-10">
           RecipeShare
         </Link>
         <NavigationMenu>
           <NavigationMenuList>
-            <NavigationMenuItem>
-              <NavigationMenuLink
-                asChild
-                className={cn(
-                  navigationMenuTriggerStyle(),
-                  pathname === "/" && "font-bold"
-                )}
-              >
-                <Link href="/">Home</Link>
-              </NavigationMenuLink>
-            </NavigationMenuItem>
-            <NavigationMenuItem>
-              <NavigationMenuLink
-                asChild
-                className={cn(
-                  navigationMenuTriggerStyle(),
-                  pathname === "/recipes" && "font-bold"
-                )}
-              >
-                <Link href="/recipes">Browse Recipes</Link>
-              </NavigationMenuLink>
-            </NavigationMenuItem>
-            <NavigationMenuItem>
-              <NavigationMenuTrigger>Categories</NavigationMenuTrigger>
-              <NavigationMenuContent>
-                <ul className="grid w-[400px] gap-3 p-4 md:w-[500px] md:grid-cols-2 lg:w-[600px]">
-                  {categories.map((category) => (
-                    <li key={category.title}>
-                      <NavigationMenuLink
-                        asChild
-                        className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
-                      >
-                        <Link href={`/categories/${category.slug}`}>
-                          <div className="text-sm font-medium leading-none">
-                            {category.title}
-                          </div>
-                          <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
-                            {category.description}
-                          </p>
-                        </Link>
-                      </NavigationMenuLink>
-                    </li>
-                  ))}
-                </ul>
-              </NavigationMenuContent>
-            </NavigationMenuItem>
             {user && (
-              <NavigationMenuItem>
-                <NavigationMenuLink
-                  asChild
-                  className={cn(
-                    navigationMenuTriggerStyle(),
-                    pathname === "/recipes/create" && "font-bold"
-                  )}
-                >
-                  <Link href="/recipes/create">Create Recipe</Link>
-                </NavigationMenuLink>
-              </NavigationMenuItem>
+              <>
+                <NavigationMenuItem>
+                  <NavigationMenuLink
+                    asChild
+                    className={cn(
+                      navigationMenuTriggerStyle(),
+                      (pathname === "/" || pathname === "/dashboard") &&
+                        "font-bold"
+                    )}
+                  >
+                    <Link href={homeUrl}>Home</Link>
+                  </NavigationMenuLink>
+                </NavigationMenuItem>
+                <NavigationMenuItem>
+                  <NavigationMenuLink
+                    asChild
+                    className={cn(
+                      navigationMenuTriggerStyle(),
+                      pathname === "/recipes" && "font-bold"
+                    )}
+                  >
+                    <Link href="/recipes">Browse Recipes</Link>
+                  </NavigationMenuLink>
+                </NavigationMenuItem>
+                <NavigationMenuItem>
+                  <NavigationMenuTrigger>Categories</NavigationMenuTrigger>
+                  <NavigationMenuContent>
+                    <ul className="grid w-[400px] gap-3 p-4 md:w-[500px] md:grid-cols-2 lg:w-[600px]">
+                      {categories.map((category) => (
+                        <li key={category.id}>
+                          <NavigationMenuLink
+                            asChild
+                            className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                          >
+                            <Link href={`/categories/${category.slug}`}>
+                              <div className="text-sm font-medium leading-none flex items-center gap-2">
+                                {category.emoji && (
+                                  <span>{category.emoji}</span>
+                                )}
+                                {category.name}
+                              </div>
+                              <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+                                {category.description ||
+                                  `Discover ${category.name.toLowerCase()} recipes`}
+                              </p>
+                            </Link>
+                          </NavigationMenuLink>
+                        </li>
+                      ))}
+                      {categories.length > 0 && (
+                        <li>
+                          <NavigationMenuLink
+                            asChild
+                            className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                          >
+                            <Link href="/categories">
+                              <div className="text-sm font-medium leading-none">
+                                View All Categories
+                              </div>
+                              <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+                                Explore all recipe categories
+                              </p>
+                            </Link>
+                          </NavigationMenuLink>
+                        </li>
+                      )}
+                    </ul>
+                  </NavigationMenuContent>
+                </NavigationMenuItem>
+                <NavigationMenuItem>
+                  <NavigationMenuLink
+                    asChild
+                    className={cn(
+                      navigationMenuTriggerStyle(),
+                      pathname === "/recipes/create" && "font-bold"
+                    )}
+                  >
+                    <Link href="/recipes/create">Create Recipe</Link>
+                  </NavigationMenuLink>
+                </NavigationMenuItem>
+              </>
             )}
           </NavigationMenuList>
         </NavigationMenu>
@@ -204,26 +294,3 @@ export function Header() {
     </header>
   );
 }
-
-const categories = [
-  {
-    title: "Desserts",
-    description: "Sweet treats and delicious desserts for any occasion",
-    slug: "desserts",
-  },
-  {
-    title: "Vegan",
-    description: "Plant-based recipes that are delicious and satisfying",
-    slug: "vegan",
-  },
-  {
-    title: "Quick Meals",
-    description: "Fast and easy recipes ready in under 30 minutes",
-    slug: "quick-meals",
-  },
-  {
-    title: "Breakfast",
-    description: "Start your day with these delicious breakfast recipes",
-    slug: "breakfast",
-  },
-];

@@ -1,17 +1,292 @@
+"use client";
+
+import { Comments } from "@/components/Comments";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth-context";
+import { supabase } from "@/lib/supabase";
+import { Database } from "@/types/supabase";
 import Image from "next/image";
 import Link from "next/link";
+import { notFound, useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+
+type Recipe = Database["public"]["Tables"]["recipes"]["Row"] & {
+  users?: {
+    username: string;
+    full_name: string | null;
+    avatar_url: string | null;
+  };
+  categories?: { name: string } | null;
+  ratings?: { rating: number }[];
+  _count?: {
+    favorites: number;
+    comments: number;
+  };
+};
 
 interface RecipePageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 export default function RecipePage({ params }: RecipePageProps) {
-  // In a real app, we would fetch the recipe from the database
-  // For now, we'll use mock data
-  const recipe = recipes.find((r) => r.id === params.id) || recipes[0];
+  const { user } = useAuth();
+  const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [recipeId, setRecipeId] = useState<string | null>(null);
+  const router = useRouter();
+
+  // Unwrap params
+  useEffect(() => {
+    const unwrapParams = async () => {
+      const resolvedParams = await params;
+      setRecipeId(resolvedParams.id);
+    };
+    unwrapParams();
+  }, [params]);
+
+  // Fetch recipe data
+  useEffect(() => {
+    if (!recipeId) return;
+
+    const fetchRecipe = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("recipes")
+          .select(
+            `
+            *,
+            users(username, full_name, avatar_url),
+            categories(name),
+            ratings(rating)
+          `
+          )
+          .eq("id", recipeId)
+          .single();
+
+        if (error) {
+          if (error.code === "PGRST116") {
+            // Recipe not found
+            notFound();
+          }
+          throw error;
+        }
+
+        // Get favorites and comments count
+        const [favoritesCount, commentsCount] = await Promise.all([
+          supabase
+            .from("favorites")
+            .select("id", { count: "exact" })
+            .eq("recipe_id", recipeId),
+          supabase
+            .from("comments")
+            .select("id", { count: "exact" })
+            .eq("recipe_id", recipeId),
+        ]);
+
+        setRecipe({
+          ...data,
+          _count: {
+            favorites: favoritesCount.count || 0,
+            comments: commentsCount.count || 0,
+          },
+        });
+
+        // Check if user has favorited this recipe
+        if (user) {
+          const { data: favoriteData } = await supabase
+            .from("favorites")
+            .select("id")
+            .eq("recipe_id", recipeId)
+            .eq("user_id", user.id)
+            .single();
+
+          setIsFavorited(!!favoriteData);
+        }
+      } catch (error) {
+        console.error("Error fetching recipe:", error);
+        toast.error("Failed to load recipe");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRecipe();
+  }, [recipeId, user]);
+
+  // Toggle favorite
+  const toggleFavorite = async () => {
+    if (!user || !recipe) return;
+
+    try {
+      if (isFavorited) {
+        const { error } = await supabase
+          .from("favorites")
+          .delete()
+          .eq("recipe_id", recipe.id)
+          .eq("user_id", user.id);
+
+        if (error) throw error;
+        setIsFavorited(false);
+        setRecipe((prev) =>
+          prev
+            ? {
+                ...prev,
+                _count: {
+                  ...prev._count!,
+                  favorites: Math.max(0, prev._count!.favorites - 1),
+                },
+              }
+            : null
+        );
+        toast.success("Recipe removed from favorites");
+      } else {
+        const { error } = await supabase.from("favorites").insert({
+          recipe_id: recipe.id,
+          user_id: user.id,
+        });
+
+        if (error) throw error;
+        setIsFavorited(true);
+        setRecipe((prev) =>
+          prev
+            ? {
+                ...prev,
+                _count: {
+                  ...prev._count!,
+                  favorites: prev._count!.favorites + 1,
+                },
+              }
+            : null
+        );
+        toast.success("Recipe added to favorites");
+      }
+    } catch (error) {
+      console.error("Error toggling favorite:", error);
+      toast.error("Failed to update favorite status");
+    }
+  };
+
+  // Calculate average rating
+  const getAverageRating = () => {
+    if (!recipe?.ratings || recipe.ratings.length === 0) return 0;
+    const sum = recipe.ratings.reduce((acc, r) => acc + r.rating, 0);
+    return (sum / recipe.ratings.length).toFixed(1);
+  };
+
+  // Handle recipe deletion
+  const handleDeleteRecipe = async () => {
+    if (!user || !recipe || user.id !== recipe.user_id) {
+      toast.error("You don't have permission to delete this recipe");
+      return;
+    }
+
+    // Confirm deletion
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this recipe? This action cannot be undone."
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase
+        .from("recipes")
+        .delete()
+        .eq("id", recipe.id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      toast.success("Recipe deleted successfully!");
+      router.push("/recipes");
+    } catch (error) {
+      console.error("Error deleting recipe:", error);
+      toast.error("Failed to delete recipe. Please try again.");
+    }
+  };
+
+  // Memoize the comments count change callback to prevent infinite re-renders
+  const handleCommentsCountChange = useCallback((count: number) => {
+    setRecipe((prev) =>
+      prev
+        ? {
+            ...prev,
+            _count: {
+              ...prev._count!,
+              comments: count,
+            },
+          }
+        : null
+    );
+  }, []);
+
+  // Memoize the rating change callback to refresh recipe data
+  const handleRatingChange = useCallback(() => {
+    // Refetch recipe data to update ratings
+    if (recipeId) {
+      const fetchUpdatedRatings = async () => {
+        try {
+          const { data, error } = await supabase
+            .from("recipes")
+            .select("ratings(rating)")
+            .eq("id", recipeId)
+            .single();
+
+          if (error) throw error;
+
+          setRecipe((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  ratings: data.ratings || [],
+                }
+              : null
+          );
+        } catch (error) {
+          console.error("Error fetching updated ratings:", error);
+        }
+      };
+
+      fetchUpdatedRatings();
+    }
+  }, [recipeId]);
+
+  if (isLoading) {
+    return (
+      <div className="container py-12 px-4 md:px-6">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-500">Loading recipe...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!recipe && !isLoading) {
+    notFound();
+  }
+
+  if (!recipe) {
+    return null; // This should never be reached due to notFound() above, but satisfies TypeScript
+  }
+
+  const ingredients = Array.isArray(recipe.ingredients)
+    ? recipe.ingredients
+    : typeof recipe.ingredients === "string"
+    ? JSON.parse(recipe.ingredients)
+    : [];
+
+  const instructions = Array.isArray(recipe.instructions)
+    ? recipe.instructions
+    : typeof recipe.instructions === "string"
+    ? JSON.parse(recipe.instructions)
+    : [];
 
   return (
     <div className="container py-12 px-4 md:px-6">
@@ -40,29 +315,41 @@ export default function RecipePage({ params }: RecipePageProps) {
           <div className="flex flex-col space-y-2">
             <div className="flex items-center space-x-2">
               <span className="text-sm font-medium px-2.5 py-0.5 rounded bg-blue-100 text-blue-800">
-                {recipe.category}
+                {recipe.categories?.name || "Uncategorized"}
               </span>
-              <span className="text-sm text-gray-500">{recipe.time} mins</span>
+              {recipe.time && (
+                <span className="text-sm text-gray-500">
+                  {recipe.time} mins
+                </span>
+              )}
             </div>
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
               {recipe.title}
             </h1>
-            <p className="text-gray-500 text-lg">{recipe.description}</p>
+            <p className="text-gray-500 text-lg">
+              {recipe.description || "No description available"}
+            </p>
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className="relative w-10 h-10 rounded-full overflow-hidden bg-gray-200">
-              <Image
-                src="/placeholder-avatar.jpg"
-                alt={recipe.author}
-                fill
-                className="object-cover"
+            <Avatar>
+              <AvatarImage
+                src={recipe.users?.avatar_url || ""}
+                alt={recipe.users?.username || "User"}
               />
-            </div>
+              <AvatarFallback>
+                {recipe.users?.username?.charAt(0).toUpperCase() || "U"}
+              </AvatarFallback>
+            </Avatar>
             <div>
-              <p className="text-sm font-medium">Recipe by {recipe.author}</p>
+              <p className="text-sm font-medium">
+                Recipe by{" "}
+                {recipe.users?.full_name ||
+                  recipe.users?.username ||
+                  "Anonymous"}
+              </p>
               <p className="text-sm text-gray-500">
-                Published on April 12, 2023
+                Published on {new Date(recipe.created_at).toLocaleDateString()}
               </p>
             </div>
           </div>
@@ -83,32 +370,58 @@ export default function RecipePage({ params }: RecipePageProps) {
               >
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
               </svg>
-              <span className="font-medium">{recipe.rating}</span>
-              <span className="text-gray-500">({recipe.reviews} reviews)</span>
+              <span className="font-medium">{getAverageRating()}</span>
+              <span className="text-gray-500">
+                ({recipe.ratings?.length || 0} reviews)
+              </span>
             </div>
-            <Button variant="outline" size="sm">
-              Save Recipe
-            </Button>
-            <Button variant="outline" size="sm">
-              Print
-            </Button>
+            <div className="flex items-center space-x-2">
+              {user && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleFavorite}
+                  disabled={!user}
+                >
+                  {isFavorited ? "❤️ Saved" : "🤍 Save Recipe"}
+                </Button>
+              )}
+              {user && user.id === recipe.user_id && (
+                <>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/recipes/${recipe.id}/edit`}>
+                      ✏️ Edit Recipe
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleDeleteRecipe}
+                  >
+                    🗑️ Delete
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
 
-          <div className="relative aspect-video overflow-hidden rounded-lg lg:hidden">
-            <Image
-              src={recipe.image}
-              alt={recipe.title}
-              fill
-              className="object-cover"
-              priority
-            />
-          </div>
+          {recipe.image_url && (
+            <div className="relative aspect-video overflow-hidden rounded-lg lg:hidden">
+              <Image
+                src={recipe.image_url}
+                alt={recipe.title}
+                fill
+                className="object-cover"
+                priority
+              />
+            </div>
+          )}
 
           <div className="space-y-6">
             <div>
               <h2 className="text-xl font-bold mb-3">Ingredients</h2>
               <ul className="space-y-2">
-                {recipe.ingredients.map((ingredient, i) => (
+                {ingredients.map((ingredient: string, i: number) => (
                   <li
                     key={i}
                     className="flex items-center space-x-2 text-gray-700"
@@ -137,7 +450,7 @@ export default function RecipePage({ params }: RecipePageProps) {
             <div>
               <h2 className="text-xl font-bold mb-3">Instructions</h2>
               <ol className="space-y-4">
-                {recipe.instructions.map((instruction, i) => (
+                {instructions.map((instruction: string, i: number) => (
                   <li key={i} className="flex space-x-4">
                     <div className="flex-shrink-0 w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center font-medium text-sm">
                       {i + 1}
@@ -151,200 +464,28 @@ export default function RecipePage({ params }: RecipePageProps) {
         </div>
 
         <div className="space-y-8">
-          <div className="relative aspect-square overflow-hidden rounded-lg hidden lg:block">
-            <Image
-              src={recipe.image}
-              alt={recipe.title}
-              fill
-              className="object-cover"
-              priority
-            />
-          </div>
-
-          <div className="bg-slate-50 p-6 rounded-lg">
-            <h3 className="text-lg font-bold mb-4">Nutrition Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              {recipe.nutrition.map((item) => (
-                <div key={item.name} className="flex flex-col">
-                  <span className="text-sm text-gray-500">{item.name}</span>
-                  <span className="font-medium">{item.value}</span>
-                </div>
-              ))}
+          {recipe.image_url && (
+            <div className="relative aspect-square overflow-hidden rounded-lg hidden lg:block">
+              <Image
+                src={recipe.image_url}
+                alt={recipe.title}
+                fill
+                className="object-cover"
+                priority
+              />
             </div>
-          </div>
+          )}
 
           <div className="border p-6 rounded-lg">
-            <h3 className="text-lg font-bold mb-4">Comments (3)</h3>
-            <div className="space-y-4">
-              {comments.map((comment) => (
-                <div key={comment.id} className="border-b pb-4 last:border-0">
-                  <div className="flex justify-between mb-2">
-                    <div className="flex items-center space-x-2">
-                      <div className="relative w-8 h-8 rounded-full overflow-hidden bg-gray-200">
-                        <Image
-                          src="/placeholder-avatar.jpg"
-                          alt={comment.author}
-                          fill
-                          className="object-cover"
-                        />
-                      </div>
-                      <span className="font-medium">{comment.author}</span>
-                    </div>
-                    <span className="text-sm text-gray-500">
-                      {comment.date}
-                    </span>
-                  </div>
-                  <p className="text-gray-700">{comment.content}</p>
-                </div>
-              ))}
-            </div>
-            <Button className="w-full mt-4">Add Comment</Button>
+            <Comments
+              recipeId={recipe.id}
+              recipeOwnerId={recipe.user_id}
+              onCommentsCountChange={handleCommentsCountChange}
+              onRatingChange={handleRatingChange}
+            />
           </div>
         </div>
       </div>
     </div>
   );
 }
-
-const recipes = [
-  {
-    id: "1",
-    title: "Homemade Margherita Pizza",
-    description:
-      "A classic Italian pizza with fresh mozzarella, tomatoes, and basil on a crispy crust.",
-    author: "Chef Maria",
-    category: "Italian",
-    time: 45,
-    rating: 4.8,
-    reviews: 124,
-    image: "/recipes/pizza.jpg",
-    ingredients: [
-      "500g pizza dough",
-      "1 cup tomato sauce",
-      "200g fresh mozzarella cheese",
-      "Fresh basil leaves",
-      "2 tablespoons olive oil",
-      "Salt and pepper to taste",
-    ],
-    instructions: [
-      "Preheat your oven to 475°F (245°C) with a pizza stone inside if you have one.",
-      "Roll out the pizza dough on a floured surface to your desired thickness.",
-      "Spread tomato sauce evenly over the dough, leaving a small border for the crust.",
-      "Tear the fresh mozzarella into pieces and distribute over the sauce.",
-      "Drizzle with olive oil and season with salt and pepper.",
-      "Bake for 10-12 minutes or until the crust is golden and the cheese is bubbly.",
-      "Remove from the oven, top with fresh basil leaves, and let cool slightly before slicing.",
-    ],
-    nutrition: [
-      { name: "Calories", value: "285 kcal" },
-      { name: "Protein", value: "12g" },
-      { name: "Carbs", value: "35g" },
-      { name: "Fat", value: "10g" },
-      { name: "Fiber", value: "2g" },
-      { name: "Sugar", value: "4g" },
-    ],
-  },
-  {
-    id: "2",
-    title: "Classic Beef Burger with Caramelized Onions",
-    description:
-      "Juicy beef burgers topped with sweet caramelized onions and all the fixings.",
-    author: "Chef John",
-    category: "American",
-    time: 30,
-    rating: 4.6,
-    reviews: 89,
-    image: "/recipes/burger.jpg",
-    ingredients: [
-      "500g ground beef (80/20 lean-to-fat ratio)",
-      "1 teaspoon salt",
-      "1/2 teaspoon black pepper",
-      "4 burger buns",
-      "2 large onions, thinly sliced",
-      "2 tablespoons butter",
-      "1 tablespoon olive oil",
-      "Lettuce, tomato, and condiments of choice",
-    ],
-    instructions: [
-      "Heat butter and olive oil in a pan over medium-low heat. Add the sliced onions with a pinch of salt and cook slowly, stirring occasionally, for 20-25 minutes until golden and caramelized.",
-      "Meanwhile, gently mix the ground beef with salt and pepper. Divide into 4 equal portions and shape into patties about 1/2 inch thick. Press a slight indent in the center of each patty to prevent bulging during cooking.",
-      "Heat a skillet or grill to medium-high heat. Cook the burgers for 3-4 minutes per side for medium doneness.",
-      "Toast the burger buns lightly.",
-      "Assemble the burgers with the caramelized onions and your choice of toppings and condiments.",
-    ],
-    nutrition: [
-      { name: "Calories", value: "420 kcal" },
-      { name: "Protein", value: "25g" },
-      { name: "Carbs", value: "30g" },
-      { name: "Fat", value: "22g" },
-      { name: "Fiber", value: "2g" },
-      { name: "Sugar", value: "5g" },
-    ],
-  },
-  {
-    id: "3",
-    title: "Chocolate Lava Cake",
-    description:
-      "Decadent chocolate cake with a molten chocolate center, perfect for chocolate lovers.",
-    author: "Chef Lily",
-    category: "Dessert",
-    time: 25,
-    rating: 4.9,
-    reviews: 156,
-    image: "/recipes/chocolate-cake.jpg",
-    ingredients: [
-      "113g dark chocolate, chopped",
-      "113g unsalted butter",
-      "2 whole eggs",
-      "2 egg yolks",
-      "100g granulated sugar",
-      "30g all-purpose flour",
-      "1 teaspoon vanilla extract",
-      "Pinch of salt",
-      "Powdered sugar for dusting",
-    ],
-    instructions: [
-      "Preheat oven to 425°F (220°C). Butter and lightly flour four 6-ounce ramekins.",
-      "Melt the chocolate and butter together in a double boiler or microwave in short bursts, stirring frequently until smooth.",
-      "In a separate bowl, whisk together the eggs, egg yolks, sugar, and vanilla until light and fluffy.",
-      "Slowly fold the melted chocolate mixture into the egg mixture.",
-      "Fold in the flour and salt until just combined.",
-      "Divide the batter evenly among the prepared ramekins.",
-      "Bake for 12-14 minutes until the edges are firm but the center is still soft.",
-      "Let cool for 1 minute, then run a knife around the edges and invert onto serving plates.",
-      "Dust with powdered sugar and serve immediately with ice cream if desired.",
-    ],
-    nutrition: [
-      { name: "Calories", value: "380 kcal" },
-      { name: "Protein", value: "6g" },
-      { name: "Carbs", value: "35g" },
-      { name: "Fat", value: "25g" },
-      { name: "Fiber", value: "2g" },
-      { name: "Sugar", value: "28g" },
-    ],
-  },
-];
-
-const comments = [
-  {
-    id: "1",
-    author: "Jane Cooper",
-    date: "2 days ago",
-    content:
-      "I made this recipe yesterday and it was absolutely delicious! The whole family loved it. Will definitely make it again.",
-  },
-  {
-    id: "2",
-    author: "Alex Morgan",
-    date: "1 week ago",
-    content:
-      "Great recipe! I added some extra basil and it turned out perfect. Thanks for sharing!",
-  },
-  {
-    id: "3",
-    author: "Sam Taylor",
-    date: "2 weeks ago",
-    content:
-      "The instructions were easy to follow and the result was amazing. Five stars from me!",
-  },
-];

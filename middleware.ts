@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 // Define protected routes that require authentication
 const protectedRoutes = [
+  "/dashboard",
   "/profile",
   "/profile/recipes",
   "/profile/favorites",
@@ -64,10 +65,10 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // If user is logged in and tries to access login/signup pages, redirect to home
+  // If user is logged in and tries to access login/signup pages, redirect to dashboard
   if (["/login", "/signup"].includes(pathname)) {
     if (session) {
-      return NextResponse.redirect(new URL("/", request.url));
+      return NextResponse.redirect(new URL("/dashboard", request.url));
     }
   }
 
